@@ -225,6 +225,29 @@ class AEgoElement:
     return UiElement(value, "ACC.", self.unit, rl.WHITE)
 
 
+class LongActionElement:
+  # Glanceable brake/coast/gas indicator driven by openpilot's COMMANDED accel (intent).
+  COAST_DEADBAND = 0.2  # m/s^2; |accel| under this reads as coasting
+
+  def __init__(self):
+    self.unit = ""
+
+  def update(self, sm, is_metric: bool) -> UiElement:
+    car_control = sm['carControl']
+    if not car_control.longActive:
+      return UiElement("-", "LONG", self.unit, rl.WHITE)
+
+    accel = car_control.actuators.accel
+    if accel <= -self.COAST_DEADBAND:
+      value, color = "BRAKE", rl.RED
+    elif accel >= self.COAST_DEADBAND:
+      value, color = "GAS", rl.Color(0, 255, 0, 255)
+    else:
+      value, color = "COAST", rl.Color(166, 166, 166, 255)
+
+    return UiElement(value, "LONG", self.unit, color)
+
+
 class LeadSpeedElement(LeadInfoElement):
   def __init__(self):
     self.unit = "km/h"
