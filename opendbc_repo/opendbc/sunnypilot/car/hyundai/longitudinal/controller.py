@@ -86,8 +86,7 @@ class LongitudinalController:
 
     self.stopping_count += 1
 
-  @staticmethod
-  def _calculate_speed_based_jerk_limits(velocity: float, long_control_state: LongCtrlState) -> tuple[float, float]:
+  def _calculate_speed_based_jerk_limits(self, velocity: float, long_control_state: LongCtrlState) -> tuple[float, float]:
     """Calculate jerk limits based on vehicle speed according to ISO 15622:2018.
 
     Args:
@@ -98,9 +97,9 @@ class LongitudinalController:
         Tuple of (upper_limit, lower_limit) in m/s³
     """
 
-    # Upper jerk limit varies based on speed and control state
+    # Upper jerk limit varies based on speed and control state (car-config driven; default matches upstream)
     if long_control_state == LongCtrlState.pid:
-      upper_limit = float(np.interp(velocity, [0.0, 5.0, 20.0], [2.0, 3.0, 2.0]))
+      upper_limit = float(np.interp(velocity, self.car_config.upper_jerk_speed_bp, self.car_config.upper_jerk_speed_v))
     else:
       upper_limit = 0.5  # Default for non-PID states
 
@@ -237,9 +236,17 @@ class LongitudinalController:
       self.accel_last = 0.0
       return
 
-    # Force zero acceleration during stopping
+    # At standstill, command a grade-sized holding decel so the car doesn't roll backward.
+    # Upstream commands 0 here and relies on the car's hold, which is insufficient on grades.
+    # On flat ground (or when stop_hold_margin == 0) this stays 0, matching upstream behavior.
     if self.stopping:
-      self.desired_accel = 0.0
+      pitch = CC.orientationNED[1] if len(CC.orientationNED) == 3 else 0.0
+      grade_accel = float(np.sin(pitch) * 9.81)
+      if self.car_config.stop_hold_margin > 0.0 and abs(grade_accel) > 0.2:
+        hold = -(abs(grade_accel) + self.car_config.stop_hold_margin)
+        self.desired_accel = float(np.clip(hold, -2.0, 0.0))
+      else:
+        self.desired_accel = 0.0
     else:
       self.desired_accel = float(np.clip(self.accel_cmd, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
 

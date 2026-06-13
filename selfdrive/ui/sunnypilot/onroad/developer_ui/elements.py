@@ -227,7 +227,10 @@ class AEgoElement:
 
 class LongActionElement:
   # Glanceable brake/coast/gas indicator driven by openpilot's COMMANDED accel (intent).
-  COAST_DEADBAND = 0.2  # m/s^2; |accel| under this reads as coasting
+  # Asymmetric thresholds: any meaningful gas command reads GAS; only real braking reads
+  # BRAKE; gentle off-throttle decel reads COAST (matches "coast = off the gas").
+  GAS_THRESHOLD = 0.1     # m/s^2
+  BRAKE_THRESHOLD = -0.3  # m/s^2
 
   def __init__(self):
     self.unit = ""
@@ -238,9 +241,9 @@ class LongActionElement:
       return UiElement("-", "LONG", self.unit, rl.WHITE)
 
     accel = car_control.actuators.accel
-    if accel <= -self.COAST_DEADBAND:
+    if accel <= self.BRAKE_THRESHOLD:
       value, color = "BRAKE", rl.RED
-    elif accel >= self.COAST_DEADBAND:
+    elif accel >= self.GAS_THRESHOLD:
       value, color = "GAS", rl.Color(0, 255, 0, 255)
     else:
       value, color = "COAST", rl.Color(166, 166, 166, 255)

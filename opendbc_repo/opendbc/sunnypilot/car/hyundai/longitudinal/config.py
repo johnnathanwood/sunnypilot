@@ -20,6 +20,13 @@ class CarTuningConfig:
   lookahead_jerk_lower_v: list[float] = field(default_factory=lambda: [0.3, 0.45, 0.6])
   longitudinal_actuator_delay: float = 0.50
   jerk_limits: float = 4.0
+  # ISO 15622 speed-based UPPER jerk ceiling (m/s^3). Caps how fast accel can ramp up;
+  # raising the low-speed point makes launch onset snappier. Default matches upstream.
+  upper_jerk_speed_bp: list[float] = field(default_factory=lambda: [0.0, 5.0, 20.0])
+  upper_jerk_speed_v: list[float] = field(default_factory=lambda: [2.0, 3.0, 2.0])
+  # Standstill hold: minimum holding decel (m/s^2) commanded on a grade so the car
+  # doesn't roll. 0.0 keeps upstream behavior (command 0 at stop, rely on the car's hold).
+  stop_hold_margin: float = 0.0
 
 
 # Default configurations for different car types
@@ -59,6 +66,8 @@ CAR_SPECIFIC_CONFIGS = {
   # Iteration 1 - validate with the tools/longitudinal_maneuvers report + on-road before tuning further.
   CAR.HYUNDAI_KONA_2022: CarTuningConfig(
     v_ego_stopping=0.3,                          # match prior DEFAULT behavior
-    lookahead_jerk_upper_v=[0.25, 0.35, 0.45],   # default [0.3, 0.45, 0.6] -> snappier acceleration
+    lookahead_jerk_upper_v=[0.25, 0.35, 0.45],   # default [0.3, 0.45, 0.6] -> snappier accel onset (mid-range)
+    upper_jerk_speed_v=[3.0, 3.5, 2.0],          # default [2.0, 3.0, 2.0] -> raise low-speed jerk ceiling for snappier launch
+    stop_hold_margin=0.3,                        # default 0.0 -> command a grade-sized holding decel at standstill (no rollback)
   ),
 }
