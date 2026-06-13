@@ -52,4 +52,13 @@ CAR_SPECIFIC_CONFIGS = {
     stopping_decel_rate=0.8,
     jerk_limits=5.0,
   ),
+  # Kona 2022 (gas, CAN/radar SCC). Previously fell back to the generic DEFAULT tune,
+  # which felt lazy off the line. Shorten only the *upper* lookahead window so it ramps
+  # up to the planner's commanded accel sooner (more upper jerk). Braking jerk
+  # (lookahead_jerk_lower_v) and the ISO 15622 ceilings are intentionally left at default.
+  # Iteration 1 - validate with the tools/longitudinal_maneuvers report + on-road before tuning further.
+  CAR.HYUNDAI_KONA_2022: CarTuningConfig(
+    v_ego_stopping=0.3,                          # match prior DEFAULT behavior
+    lookahead_jerk_upper_v=[0.25, 0.35, 0.45],   # default [0.3, 0.45, 0.6] -> snappier acceleration
+  ),
 }
