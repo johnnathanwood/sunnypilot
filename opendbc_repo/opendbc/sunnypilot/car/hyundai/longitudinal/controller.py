@@ -55,6 +55,7 @@ class LongitudinalController:
     self.comfort_band_upper = 0.0
     self.comfort_band_lower = 0.0
     self.stopping = False
+    self.hold_active = False
 
   @property
   def enabled(self) -> bool:
@@ -216,11 +217,12 @@ class LongitudinalController:
       self.jerk_upper = 0.0
       self.jerk_lower = 0.0
 
-  def calculate_accel(self, CC: structs.CarControl) -> None:
+  def calculate_accel(self, CC: structs.CarControl, CS: CarStateBase) -> None:
     """Calculate commanded acceleration using jerk-limited approach.
 
     Args:
         CC: Car control signals
+        CS: Car state
     """
 
     # Skip custom processing if tuning is disabled or radar unavailable
@@ -234,12 +236,23 @@ class LongitudinalController:
       self.desired_accel = 0.0
       self.actual_accel = 0.0
       self.accel_last = 0.0
+      self.hold_active = False
       return
 
-    # At standstill, command a grade-sized holding decel so the car doesn't roll backward.
-    # Upstream commands 0 here and relies on the car's hold, which is insufficient on grades.
-    # On flat ground (or when stop_hold_margin == 0) this stays 0, matching upstream behavior.
-    if self.stopping:
+    # Standstill-hold gate (speed + intent, with hysteresis). The upstream 'stopping'
+    # longControlState often never latches at a true standstill, so gate on actual speed
+    # instead. Release IMMEDIATELY when the planner commands gas (intent to go) so the hold
+    # can never fight a pull-away (no deadlock on a grade).
+    wants_to_go = self.accel_cmd > 0.1
+    if CS.out.vEgo < 0.2 and not wants_to_go:
+      self.hold_active = True
+    elif CS.out.vEgo > 0.4 or wants_to_go:
+      self.hold_active = False
+
+    if self.hold_active:
+      # Command a grade-sized holding decel so the car doesn't roll. Upstream commands 0 and
+      # relies on the car's hold, which is insufficient on grades. Flat ground (or
+      # stop_hold_margin == 0) stays 0, matching upstream behavior.
       pitch = CC.orientationNED[1] if len(CC.orientationNED) == 3 else 0.0
       grade_accel = float(np.sin(pitch) * 9.81)
       if self.car_config.stop_hold_margin > 0.0 and abs(grade_accel) > 0.2:
@@ -302,7 +315,7 @@ class LongitudinalController:
 
     self.get_stopping_state(actuators)
     self.calculate_jerk(CC, CS, long_control_state)
-    self.calculate_accel(CC)
+    self.calculate_accel(CC, CS)
     self.calculate_comfort_band(CC, CS)
     self.get_tuning_state()
 

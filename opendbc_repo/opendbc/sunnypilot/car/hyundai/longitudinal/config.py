@@ -67,7 +67,7 @@ CAR_SPECIFIC_CONFIGS = {
   CAR.HYUNDAI_KONA_2022: CarTuningConfig(
     v_ego_stopping=0.3,                          # match prior DEFAULT behavior
     lookahead_jerk_upper_v=[0.25, 0.35, 0.45],   # default [0.3, 0.45, 0.6] -> snappier accel onset (mid-range)
-    upper_jerk_speed_v=[3.0, 3.5, 2.0],          # default [2.0, 3.0, 2.0] -> raise low-speed jerk ceiling for snappier launch
+    upper_jerk_speed_v=[2.5, 3.0, 2.0],          # default [2.0, 3.0, 2.0] -> mild low-speed bump (gas-step is delivery-bound, so don't over-raise)
     stop_hold_margin=0.3,                        # default 0.0 -> command a grade-sized holding decel at standstill (no rollback)
   ),
 }

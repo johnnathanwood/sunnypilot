@@ -231,6 +231,7 @@ class LongActionElement:
   # BRAKE; gentle off-throttle decel reads COAST (matches "coast = off the gas").
   GAS_THRESHOLD = 0.1     # m/s^2
   BRAKE_THRESHOLD = -0.3  # m/s^2
+  STOPPED_V = 0.25        # m/s; below this while commanding gas == SCC won't pull away yet
 
   def __init__(self):
     self.unit = ""
@@ -244,7 +245,11 @@ class LongActionElement:
     if accel <= self.BRAKE_THRESHOLD:
       value, color = "BRAKE", rl.RED
     elif accel >= self.GAS_THRESHOLD:
-      value, color = "GAS", rl.Color(0, 255, 0, 255)
+      # commanding gas but still stopped = Hyundai SCC standstill hold (won't auto-resume); flag it amber
+      if sm['carState'].vEgo < self.STOPPED_V:
+        value, color = "GAS held", rl.Color(255, 188, 0, 255)
+      else:
+        value, color = "GAS", rl.Color(0, 255, 0, 255)
     else:
       value, color = "COAST", rl.Color(166, 166, 166, 255)
 
