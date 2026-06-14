@@ -133,6 +133,10 @@ class ChevronMetrics:
 
     self.update_alpha(has_lead_one or has_lead_two)
 
+    # Tracking border boxes ride the Developer UI ("debug") gate, independent of the
+    # chevron-metrics text setting, so they show alongside the LONG: BRAKE/COAST/GAS chip.
+    self._draw_lead_borders(radar_state, rect, lead_vehicles, has_lead_one, has_lead_two)
+
     if not self.should_render():
       return
 
@@ -145,3 +149,67 @@ class ChevronMetrics:
       d_rel_diff = abs(lead_one.dRel - lead_two.dRel) if has_lead_one else float('inf')
       if d_rel_diff > 3.0:
         self._draw_lead(lead_two, lead_vehicles[1], v_ego, rect)
+
+  def _draw_lead_borders(self, radar_state, rect, lead_vehicles, has_lead_one: bool, has_lead_two: bool):
+    """Draw outline boxes around the tracked lead(s).
+
+    Gated on the Developer UI flag (DevUIInfo) so the boxes only show in debug mode,
+    beside the LONG: BRAKE/COAST/GAS chip, and independent of the chevron-metrics text
+    setting. Fades with the shared _lead_status_alpha maintained by update_alpha().
+    """
+    if not ui_state.developer_ui:  # OFF (0 / None) -> no boxes
+      return
+    if self._lead_status_alpha <= 0.0:
+      return
+
+    lead_one = radar_state.leadOne
+    lead_two = radar_state.leadTwo
+
+    if has_lead_one and lead_vehicles[0].chevron and len(lead_vehicles[0].chevron) >= 2:
+      apex = lead_vehicles[0].chevron[1]
+      self._draw_lead_box(apex[0], apex[1], lead_one.dRel, rect)
+
+    if has_lead_two and lead_vehicles[1].chevron and len(lead_vehicles[1].chevron) >= 2:
+      d_rel_diff = abs(lead_one.dRel - lead_two.dRel) if has_lead_one else float('inf')
+      if d_rel_diff > 3.0:
+        apex = lead_vehicles[1].chevron[1]
+        self._draw_lead_box(apex[0], apex[1], lead_two.dRel, rect)
+
+  def _draw_lead_box(self, center_x: float, center_y: float, d_rel: float, rect: rl.Rectangle):
+    """Draw a single rounded outline box centered on a lead's chevron apex, with a
+    distance-only label. Color by distance (red <5 m, amber <15 m, white), sized with
+    the same distance formula as the chevron so it scales naturally."""
+    sz = np.clip((25 * 30) / (d_rel / 3 + 30), 15.0, 30.0) * 2.35
+    box_w = sz * 2.6
+    box_h = sz * 2.2
+
+    # Skip if the apex projects off-frame; otherwise clamp the box fully into the view.
+    if not (rect.x <= center_x <= rect.x + rect.width and rect.y <= center_y <= rect.y + rect.height):
+      return
+    rx = float(np.clip(center_x - box_w / 2.0, rect.x, rect.x + rect.width - box_w))
+    ry = float(np.clip(center_y - box_h * 0.35, rect.y, rect.y + rect.height - box_h))
+
+    if d_rel < 5:
+      r, g, b = 255, 0, 0
+    elif d_rel < 15:
+      r, g, b = 255, 188, 0
+    else:
+      r, g, b = 255, 255, 255
+    alpha = self._lead_status_alpha
+    color = rl.Color(r, g, b, int(255 * alpha))
+    shadow = rl.Color(0, 0, 0, int(160 * alpha))
+
+    rl.draw_rectangle_rounded_lines_ex(rl.Rectangle(rx + 2, ry + 2, box_w, box_h), 0.15, 8, 4, shadow)
+    rl.draw_rectangle_rounded_lines_ex(rl.Rectangle(rx, ry, box_w, box_h), 0.15, 8, 4, color)
+
+    # Distance-only label at the box top-left (object-detection style).
+    val = max(0.0, d_rel)
+    unit = "m" if ui_state.is_metric else "ft"
+    if not ui_state.is_metric:
+      val *= 3.28084
+    label = f"{val:.0f} {unit}"
+    font_size = 30
+    lx = int(rx)
+    ly = max(int(rect.y), int(ry - font_size - 4))
+    rl.draw_text_ex(self._font, label, rl.Vector2(lx + 2, ly + 2), font_size, 0, rl.Color(0, 0, 0, int(200 * alpha)))
+    rl.draw_text_ex(self._font, label, rl.Vector2(lx, ly), font_size, 0, color)
