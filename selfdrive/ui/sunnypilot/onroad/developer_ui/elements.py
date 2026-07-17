@@ -4,6 +4,9 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
+import math
+import time
+
 import pyray as rl
 from dataclasses import dataclass
 
@@ -346,3 +349,67 @@ class AltitudeElement(GpsInfoElement):
 
     value = f"{altitude:.1f}" if gps_accuracy != 0.0 else "-"
     return UiElement(value, "ALT.", self.unit, rl.WHITE)
+
+
+class LongActionElement:
+  # LONG indicator (manual-aware). Shows GAS / COAST / BRAKE / SLOW = what the car is doing
+  # longitudinally, in BOTH modes:
+  #   - openpilot in long control: classify its COMMANDED accel vs the natural coast accel
+  #     (mirror get_coast_accel) -> above = GAS (green; incl. holding speed), below-with-lamp =
+  #     BRAKE (red), below-without-lamp = SLOW (blue), riding it = COAST (gray).
+  #   - driver in control (not longActive): classify the DRIVER's pedals -> gasPressed = GAS (amber),
+  #     nothing = COAST (gray); the physical brake lamp reads BRAKE above.
+  # Colour convention: green/red/blue = the comma is acting, amber = YOU are acting, gray = coasting.
+  GAS_MARGIN = 0.03     # m/s^2 above coast to read GAS (small, so holding-against-drag counts as gas)
+  BRAKE_MARGIN = 0.20   # m/s^2 below coast to read BRAKE
+  STOPPED_V = 0.25      # m/s; commanding gas but stopped == SCC standstill hold (won't auto-resume)
+
+  def __init__(self):
+    self.unit = ""
+    self._lamp_on_since = None   # monotonic ts the physical brake lamp came on
+
+  @staticmethod
+  def _coast_accel(v_ego: float, pitch: float) -> float:
+    # mirror selfdrive/controls/lib/longitudinal_planner.get_coast_accel (grade + speed-dependent drag)
+    return math.sin(pitch) * -9.81 + (-0.05 - 0.011 * v_ego - 0.00014 * v_ego ** 2)
+
+  def update(self, sm, is_metric: bool) -> UiElement:
+    cc = sm['carControl']
+    cs = sm['carState']
+    # brake lamp wins first, in EITHER mode: the car is physically braking (reverse-engineered msg
+    # 1193 bit62). red = the comma's braking lit it; amber = the driver is braking.
+    if cs.brakeLightsDEPRECATED:
+      if self._lamp_on_since is None:
+        self._lamp_on_since = time.monotonic()
+      _d = time.monotonic() - self._lamp_on_since
+      _lbl = ("BRAKE %ds" % _d) if _d >= 1.0 else "BRAKE"
+      if cc.longActive and not cs.brakePressed:
+        return UiElement(_lbl, "LONG", self.unit, rl.RED)
+      return UiElement(_lbl, "LONG", self.unit, rl.Color(255, 188, 0, 255))
+    self._lamp_on_since = None   # lamp OFF -> reset the on-duration timer
+
+    if not cc.longActive:
+      # MANUAL longitudinal: the driver owns the pedals (brake handled by the lamp above).
+      if cs.gasPressed:
+        return UiElement("GAS", "LONG", self.unit, rl.Color(255, 188, 0, 255))
+      return UiElement("COAST", "LONG", self.unit, rl.Color(166, 166, 166, 255))
+
+    accel = float(cc.actuators.accel)
+    v = float(cs.vEgo)
+    try:
+      pitch = float(cc.orientationNED[1])
+    except Exception:
+      pitch = 0.0
+    coast = self._coast_accel(v, pitch)
+
+    # commanding below coast while the lamp is OFF = easing/decelerating without lighting the
+    # brake lights -> SLOW (blue), not red BRAKE.
+    if accel <= coast - self.BRAKE_MARGIN:
+      return UiElement("SLOW", "LONG", self.unit, rl.Color(110, 160, 210, 255))
+    # above the coast curve = adding power -> GAS (incl. holding speed against drag)
+    if accel >= coast + self.GAS_MARGIN:
+      if v < self.STOPPED_V:
+        return UiElement("GAS held", "LONG", self.unit, rl.Color(255, 188, 0, 255))
+      return UiElement("GAS", "LONG", self.unit, rl.Color(0, 255, 0, 255))
+    # riding the coast curve: off the gas, not braking
+    return UiElement("COAST", "LONG", self.unit, rl.Color(166, 166, 166, 255))
